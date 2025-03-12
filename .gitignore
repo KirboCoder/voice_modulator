@@ -1,0 +1,13 @@
+node_modules
+build
+dist
+cpp/build
+electron_app/node_modules
+electron_app/dist
+backend/python/__pycache__
+backend/cpp/build
+*.lib
+*.exp
+*.dll
+*.pdb
+*.cmake

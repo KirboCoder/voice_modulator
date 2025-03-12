@@ -1,0 +1,11 @@
+{
+    "name": "voice-modulator-prototype",
+    "version": "1.0.0",
+    "main": "main.js",
+    "scripts": {
+      "start": "electron ."
+    },
+    "dependencies": {
+      "electron": "^20.0.0"
+    }
+  }
