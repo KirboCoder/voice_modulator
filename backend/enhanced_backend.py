@@ -15,17 +15,17 @@ async def handle_client(websocket, path):
     try:
         await websocket.send(json.dumps({"status": "connected"}))
         
-        # Start audio processor in paused state
+        # Initialize audio processor
         audio_processor.initialize()
         
         async for message in websocket:
             try:
                 data = json.loads(message)
                 message_type = data.get('type', '')
+                print(f"Received message: {data}")  # Debugging
                 
                 if message_type == 'modulator':
                     settings = data.get('settings', {})
-                    # Update audio processor settings
                     await handle_modulator_settings(settings)
                     
                 elif message_type == 'tts':
@@ -51,7 +51,6 @@ async def handle_client(websocket, path):
         print("Client disconnected")
     finally:
         clients.remove(websocket)
-        # Cleanup resources
         audio_processor.cleanup()
 
 async def handle_modulator_settings(settings):
@@ -82,7 +81,6 @@ async def handle_tts_request(settings, websocket):
         await websocket.send(json.dumps({"error": "No text provided"}))
         return
     
-    # Generate speech and play it
     success = tts_engine.generate_speech(text, voice, pitch, speed, volume)
     
     if success:
@@ -98,4 +96,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-

@@ -17,35 +17,28 @@ class AudioProcessor:
             return
             
         try:
-            # Create audio server
             self.server = Server(duplex=1).boot()
+            # List available devices for debugging
+            print("Available audio devices:")
+            for i in range(Pa_GetDeviceCount()):
+                dev = Pa_GetDeviceInfo(i)
+                print(f"{i}: {dev['name']}")
+            # Set output to VB-CABLE Input (adjust index based on your system)
+            virtual_cable_index = 1  # Example: replace with your VB-CABLE Input index
+            self.server.setOutputDevice(virtual_cable_index)
             
-            # Audio input from microphone
             self.mic = Input()
-            
-            # Phase vocoder for pitch shifting
             self.pv = PVAnal(self.mic)
             self.transp = PVTransp(self.pv, transpo=1.0)
-            
-            # Speed control
-            self.speed_control = ControlRateScale(1.0)
-            
-            # Distortion effect
-            self.dist = Disto(self.transp, drive=0, slope=0.5)
-            
-            # Create delay line for echo
+            self.speed_control = PVTimeStretch(self.transp, stretch=1.0)
+            self.dist = Disto(self.speed_control, drive=0, slope=0.5)
             self.delay = Delay(self.dist, delay=0.25, feedback=0)
-            
-            # Create reverb
             self.reverb = Freeverb(self.delay, size=0.8, damp=0.5, bal=0)
-            
-            # Final output
             self.output = self.reverb
             
-            # Mixer to control when audio is processed
             self.mixer = Mixer(outs=2, chnls=1)
             self.mixer.addInput(0, self.output)
-            self.mixer.setAmp(0, 0, 0)  # Start with volume at 0
+            self.mixer.setAmp(0, 0, 0)
             self.mixer.setAmp(0, 1, 0)
             self.mixer.out()
             
@@ -66,18 +59,15 @@ class AudioProcessor:
         def process_thread():
             try:
                 self.server.start()
-                # Fade in the volume
                 self.mixer.setAmp(0, 0, 1)
                 self.mixer.setAmp(0, 1, 1)
-                
-                # Keep processing until stopped
+                print("Audio server started, processing audio")
                 while self.is_processing:
                     time.sleep(0.1)
-                    
-                # Fade out when stopped
                 self.mixer.setAmp(0, 0, 0)
                 self.mixer.setAmp(0, 1, 0)
                 self.server.stop()
+                print("Audio server stopped")
                 
             except Exception as e:
                 print(f"Error in audio processing thread: {e}")
@@ -93,7 +83,7 @@ class AudioProcessor:
         if self.is_processing:
             self.is_processing = False
             if self.processing_thread:
-                self.processing_thread.join(1.0)  # Wait for thread to finish
+                self.processing_thread.join(1.0)
             print("Audio processing stopped")
     
     def cleanup(self):
@@ -109,8 +99,6 @@ class AudioProcessor:
         """Set pitch shift in semitones"""
         if not self.is_initialized:
             return
-            
-        # Convert semitones to transposition factor
         factor = 2 ** (semitones / 12.0)
         self.transp.transpo.setValue(factor)
         print(f"Pitch shift set to {semitones} semitones (factor: {factor:.2f})")
@@ -119,16 +107,14 @@ class AudioProcessor:
         """Set playback speed (1.0 = normal)"""
         if not self.is_initialized:
             return
-            
-        self.speed_control.setValue(speed)
-        print(f"Speed set to {speed}")
+        stretch = 1 / speed if speed > 0 else 1.0
+        self.speed_control.stretch.setValue(stretch)
+        print(f"Speed set to {speed} (stretch: {stretch})")
     
     def set_reverb(self, amount):
         """Set reverb amount (0-1)"""
         if not self.is_initialized:
             return
-            
-        # Ensure amount is between 0-1
         amount = max(0, min(1, amount))
         self.reverb.bal.setValue(amount)
         print(f"Reverb set to {amount}")
@@ -137,19 +123,14 @@ class AudioProcessor:
         """Set echo amount (0-1)"""
         if not self.is_initialized:
             return
-            
-        # Ensure amount is between 0-1
         amount = max(0, min(1, amount))
-        self.delay.feedback.setValue(amount * 0.8)  # Scale to avoid feedback loops
+        self.delay.feedback.setValue(amount * 0.8)
         print(f"Echo set to {amount}")
     
     def set_distortion(self, amount):
         """Set distortion amount (0-1)"""
         if not self.is_initialized:
             return
-            
-        # Ensure amount is between 0-1
         amount = max(0, min(1, amount))
-        self.dist.drive.setValue(amount * 0.9)  # Scale to avoid extreme distortion
+        self.dist.drive.setValue(amount * 0.9)
         print(f"Distortion set to {amount}")
-

@@ -13,16 +13,13 @@ import { toast } from "@/hooks/use-toast"
 import { Mic, Save, RotateCcw, Play, Plus, Download } from "lucide-react"
 import ProfilesList from "@/components/profiles-list"
 import VoiceVisualizer from "@/components/voice-visualizer"
-import { createWebSocketConnection } from "@/lib/websocket"
 
 export default function Home() {
-  // Connection status
   const [isConnected, setIsConnected] = useState(false)
   const [isRecording, setIsRecording] = useState(false)
   const [activeTab, setActiveTab] = useState("modulator")
-  const wsRef = useRef(null)
+  const wsRef = useRef<WebSocket | null>(null)
 
-  // Voice modulation settings
   const [modulationSettings, setModulationSettings] = useState({
     pitch: 0,
     speed: 1,
@@ -31,7 +28,6 @@ export default function Home() {
     distortion: 0,
   })
 
-  // TTS settings
   const [ttsSettings, setTtsSettings] = useState({
     voice: "default",
     pitch: 0,
@@ -40,143 +36,108 @@ export default function Home() {
     text: "",
   })
 
-  // Profiles
   const [profiles, setProfiles] = useState([
-    {
-      id: 1,
-      name: "Robot Voice",
-      type: "modulator",
-      settings: { pitch: 5, speed: 1.2, reverb: 0.3, echo: 0.5, distortion: 0.2 },
-    },
-    {
-      id: 2,
-      name: "Deep Voice",
-      type: "modulator",
-      settings: { pitch: -5, speed: 0.9, reverb: 0.1, echo: 0.2, distortion: 0 },
-    },
+    { id: 1, name: "Robot Voice", type: "modulator", settings: { pitch: 5, speed: 1.2, reverb: 0.3, echo: 0.5, distortion: 0.2 } },
+    { id: 2, name: "Deep Voice", type: "modulator", settings: { pitch: -5, speed: 0.9, reverb: 0.1, echo: 0.2, distortion: 0 } },
     { id: 3, name: "Narrator", type: "tts", settings: { voice: "default", pitch: 0, speed: 1, volume: 1 } },
   ])
   const [profileName, setProfileName] = useState("")
 
-  // Connect to WebSocket when component mounts
   useEffect(() => {
-    const { ws, connect, disconnect } = createWebSocketConnection()
-    wsRef.current = { ws, connect, disconnect }
-
-    connect(
-      () => {
-        setIsConnected(true)
-        toast({
-          title: "Connected to server",
-          description: "Your voice modulator is ready to use",
-        })
-      },
-      () => {
-        setIsConnected(false)
-        toast({
-          title: "Disconnected from server",
-          description: "Connection to voice processing server lost",
-          variant: "destructive",
-        })
-      },
-    )
+    const ws = new WebSocket('ws://localhost:8765')
+    ws.onopen = () => {
+      setIsConnected(true)
+      toast({ title: "Connected to server", description: "Your voice modulator is ready to use" })
+    }
+    ws.onclose = () => {
+      setIsConnected(false)
+      toast({ title: "Disconnected from server", description: "Connection lost", variant: "destructive" })
+    }
+    ws.onerror = (error) => {
+      console.error('WebSocket error:', error)
+    }
+    ws.onmessage = (event) => {
+      const data = JSON.parse(event.data)
+      console.log('Received:', data)
+      if (data.status === "recording_started") setIsRecording(true)
+      if (data.status === "recording_stopped") setIsRecording(false)
+      if (data.status === "tts_completed") toast({ title: "TTS played successfully" })
+      if (data.error) toast({ title: "Error", description: data.error, variant: "destructive" })
+    }
+    wsRef.current = ws
 
     return () => {
-      disconnect()
+      ws.close()
     }
   }, [])
 
-  // Send settings update to server when modulation settings change
   useEffect(() => {
-    if (isConnected && wsRef.current?.ws) {
-      wsRef.current.ws.send(
+    if (isConnected && wsRef.current) {
+      wsRef.current.send(
         JSON.stringify({
           type: activeTab,
           settings: activeTab === "modulator" ? modulationSettings : ttsSettings,
-        }),
+        })
       )
     }
   }, [modulationSettings, ttsSettings, isConnected, activeTab])
 
-  const handleModulationChange = (key, value) => {
+  const handleModulationChange = (key: string, value: number) => {
     setModulationSettings((prev) => ({ ...prev, [key]: value }))
   }
 
-  const handleTtsChange = (key, value) => {
+  const handleTtsChange = (key: string, value: string | number) => {
     setTtsSettings((prev) => ({ ...prev, [key]: value }))
   }
 
   const toggleRecording = () => {
-    if (wsRef.current?.ws) {
-      wsRef.current.ws.send(
+    if (wsRef.current) {
+      wsRef.current.send(
         JSON.stringify({
           type: "recording",
           action: isRecording ? "stop" : "start",
-        }),
+        })
       )
       setIsRecording(!isRecording)
-
-      if (!isRecording) {
-        toast({
-          title: "Recording started",
-          description: "Your voice is being processed",
-        })
-      } else {
-        toast({
-          title: "Recording stopped",
-        })
-      }
+      toast({
+        title: isRecording ? "Recording stopped" : "Recording started",
+        description: isRecording ? "" : "Your voice is being processed",
+      })
     }
   }
 
   const playTts = () => {
-    if (wsRef.current?.ws && ttsSettings.text) {
-      wsRef.current.ws.send(
+    if (wsRef.current && ttsSettings.text) {
+      wsRef.current.send(
         JSON.stringify({
           type: "tts",
           action: "play",
           settings: ttsSettings,
-        }),
+        })
       )
-
-      toast({
-        title: "Playing text",
-      })
+      toast({ title: "Playing text" })
     } else {
-      toast({
-        title: "Cannot play",
-        description: "Please enter some text first",
-        variant: "destructive",
-      })
+      toast({ title: "Cannot play", description: "Please enter some text", variant: "destructive" })
     }
   }
 
   const saveProfile = () => {
     if (!profileName) {
-      toast({
-        title: "Please enter a profile name",
-        variant: "destructive",
-      })
+      toast({ title: "Please enter a profile name", variant: "destructive" })
       return
     }
-
     const newProfile = {
       id: Date.now(),
       name: profileName,
       type: activeTab,
       settings: activeTab === "modulator" ? { ...modulationSettings } : { ...ttsSettings },
     }
-
     setProfiles([...profiles, newProfile])
     setProfileName("")
-
-    toast({
-      title: "Profile saved",
-      description: `${profileName} has been saved to your profiles`,
-    })
+    toast({ title: "Profile saved", description: `${profileName} has been saved` })
   }
 
-  const loadProfile = (profile) => {
+  const loadProfile = (profile: any) => {
     if (profile.type === "modulator") {
       setModulationSettings(profile.settings)
       setActiveTab("modulator")
@@ -184,43 +145,21 @@ export default function Home() {
       setTtsSettings(profile.settings)
       setActiveTab("tts")
     }
-
-    toast({
-      title: "Profile loaded",
-      description: `${profile.name} has been loaded`,
-    })
+    toast({ title: "Profile loaded", description: `${profile.name} has been loaded` })
   }
 
-  const deleteProfile = (id) => {
+  const deleteProfile = (id: number) => {
     setProfiles(profiles.filter((profile) => profile.id !== id))
-
-    toast({
-      title: "Profile deleted",
-    })
+    toast({ title: "Profile deleted" })
   }
 
   const resetSettings = () => {
     if (activeTab === "modulator") {
-      setModulationSettings({
-        pitch: 0,
-        speed: 1,
-        reverb: 0,
-        echo: 0,
-        distortion: 0,
-      })
+      setModulationSettings({ pitch: 0, speed: 1, reverb: 0, echo: 0, distortion: 0 })
     } else {
-      setTtsSettings({
-        ...ttsSettings,
-        pitch: 0,
-        speed: 1,
-        volume: 1,
-      })
+      setTtsSettings({ ...ttsSettings, pitch: 0, speed: 1, volume: 1 })
     }
-
-    toast({
-      title: "Settings reset",
-      description: "All values have been reset to default",
-    })
+    toast({ title: "Settings reset", description: "Values reset to default" })
   }
 
   return (
@@ -254,17 +193,12 @@ export default function Home() {
                   </CardHeader>
                   <CardContent className="space-y-6">
                     <VoiceVisualizer isActive={isRecording} />
-
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Pitch ({modulationSettings.pitch} semitones)</Label>
                           <span className="text-xs text-muted-foreground">
-                            {modulationSettings.pitch < 0
-                              ? "Deeper"
-                              : modulationSettings.pitch > 0
-                                ? "Higher"
-                                : "Normal"}
+                            {modulationSettings.pitch < 0 ? "Deeper" : modulationSettings.pitch > 0 ? "Higher" : "Normal"}
                           </span>
                         </div>
                         <Slider
@@ -275,16 +209,11 @@ export default function Home() {
                           onValueChange={([value]) => handleModulationChange("pitch", value)}
                         />
                       </div>
-
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Speed ({modulationSettings.speed.toFixed(1)}x)</Label>
                           <span className="text-xs text-muted-foreground">
-                            {modulationSettings.speed < 1
-                              ? "Slower"
-                              : modulationSettings.speed > 1
-                                ? "Faster"
-                                : "Normal"}
+                            {modulationSettings.speed < 1 ? "Slower" : modulationSettings.speed > 1 ? "Faster" : "Normal"}
                           </span>
                         </div>
                         <Slider
@@ -295,7 +224,6 @@ export default function Home() {
                           onValueChange={([value]) => handleModulationChange("speed", value)}
                         />
                       </div>
-
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Reverb ({Math.round(modulationSettings.reverb * 100)}%)</Label>
@@ -311,7 +239,6 @@ export default function Home() {
                           onValueChange={([value]) => handleModulationChange("reverb", value)}
                         />
                       </div>
-
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Echo ({Math.round(modulationSettings.echo * 100)}%)</Label>
@@ -327,7 +254,6 @@ export default function Home() {
                           onValueChange={([value]) => handleModulationChange("echo", value)}
                         />
                       </div>
-
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Distortion ({Math.round(modulationSettings.distortion * 100)}%)</Label>
@@ -384,7 +310,6 @@ export default function Home() {
                         </SelectContent>
                       </Select>
                     </div>
-
                     <div className="space-y-4">
                       <div className="space-y-2">
                         <div className="flex justify-between">
@@ -401,7 +326,6 @@ export default function Home() {
                           onValueChange={([value]) => handleTtsChange("pitch", value)}
                         />
                       </div>
-
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Speed ({ttsSettings.speed.toFixed(1)}x)</Label>
@@ -417,7 +341,6 @@ export default function Home() {
                           onValueChange={([value]) => handleTtsChange("speed", value)}
                         />
                       </div>
-
                       <div className="space-y-2">
                         <div className="flex justify-between">
                           <Label>Volume ({Math.round(ttsSettings.volume * 100)}%)</Label>
@@ -431,7 +354,6 @@ export default function Home() {
                         />
                       </div>
                     </div>
-
                     <div className="space-y-2">
                       <Label htmlFor="tts-text">Text to speak</Label>
                       <Textarea
@@ -475,7 +397,6 @@ export default function Home() {
                     <Save className="h-4 w-4" />
                   </Button>
                 </div>
-
                 <div className="h-[500px] overflow-y-auto pr-2">
                   <ProfilesList
                     profiles={profiles}
@@ -508,22 +429,15 @@ export default function Home() {
                     fileInput.type = "file"
                     fileInput.accept = ".json"
                     fileInput.onchange = (e) => {
-                      const file = e.target.files[0]
+                      const file = (e.target as HTMLInputElement).files![0]
                       const reader = new FileReader()
                       reader.onload = (event) => {
                         try {
-                          const importedProfiles = JSON.parse(event.target.result)
+                          const importedProfiles = JSON.parse(event.target!.result as string)
                           setProfiles([...profiles, ...importedProfiles])
-                          toast({
-                            title: "Profiles imported",
-                            description: `${importedProfiles.length} profiles were imported`,
-                          })
+                          toast({ title: "Profiles imported", description: `${importedProfiles.length} profiles imported` })
                         } catch (error) {
-                          toast({
-                            title: "Import failed",
-                            description: "The file does not contain valid profile data",
-                            variant: "destructive",
-                          })
+                          toast({ title: "Import failed", description: "Invalid profile data", variant: "destructive" })
                         }
                       }
                       reader.readAsText(file)
@@ -542,4 +456,3 @@ export default function Home() {
     </main>
   )
 }
-
